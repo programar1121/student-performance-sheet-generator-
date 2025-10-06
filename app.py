@@ -252,6 +252,136 @@ def process_dataframe(df, subjects):
         'subjects': subjects
     }
 
+# ---------- Individual Student Analysis Functions ----------
+def create_student_performance_chart(student_data, subjects):
+    """Create radar chart for individual student performance"""
+    # Get student scores for each subject
+    scores = []
+    for subject in subjects:
+        pct_col = subject + "_pct"
+        score = student_data.get(pct_col, 0)
+        scores.append(score if not pd.isna(score) else 0)
+    
+    # Number of variables
+    num_vars = len(subjects)
+    
+    # Compute angle for each subject
+    angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+    angles += angles[:1]  # Complete the circle
+    scores += scores[:1]  # Complete the circle
+    
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(projection='polar'))
+    
+    # Plot the student's scores
+    ax.plot(angles, scores, 'o-', linewidth=2, label='Student Score', color='blue')
+    ax.fill(angles, scores, alpha=0.25, color='blue')
+    
+    # Plot class average (as a reference circle at 50%)
+    class_avg_line = [50] * (num_vars + 1)
+    ax.plot(angles, class_avg_line, '--', linewidth=1, label='Class Average (50%)', color='red', alpha=0.7)
+    
+    # Add subject labels
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(subjects)
+    
+    # Set y-axis limits and labels
+    ax.set_ylim(0, 100)
+    ax.set_yticks([20, 40, 60, 80, 100])
+    ax.set_yticklabels(['20%', '40%', '60%', '80%', '100%'])
+    
+    # Add title and legend
+    student_name = student_data.get('Student Name', 'Unknown Student')
+    ax.set_title(f'Subject Performance Radar - {student_name}', size=14, fontweight='bold', pad=20)
+    ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+    
+    plt.tight_layout()
+    return fig_to_bytes(fig)
+
+def create_student_subject_bar_chart(student_data, subjects, class_avg_data):
+    """Create bar chart comparing student performance to class average"""
+    student_scores = []
+    class_avgs = []
+    
+    for subject in subjects:
+        pct_col = subject + "_pct"
+        student_score = student_data.get(pct_col, 0)
+        student_scores.append(student_score if not pd.isna(student_score) else 0)
+        class_avgs.append(class_avg_data.get(subject, {}).get('average', 0))
+    
+    x = np.arange(len(subjects))
+    width = 0.35
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars1 = ax.bar(x - width/2, student_scores, width, label='Student Score', color='#3498db', alpha=0.8)
+    bars2 = ax.bar(x + width/2, class_avgs, width, label='Class Average', color='#e74c3c', alpha=0.6)
+    
+    ax.set_xlabel('Subjects', fontweight='bold')
+    ax.set_ylabel('Percentage (%)', fontweight='bold')
+    student_name = student_data.get('Student Name', 'Unknown Student')
+    ax.set_title(f'{student_name} - Subject Performance vs Class Average', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(subjects, rotation=45, ha='right')
+    ax.legend()
+    ax.grid(axis='y', alpha=0.3)
+    ax.set_ylim(0, 100)
+    
+    # Add value labels on bars
+    for bars in [bars1, bars2]:
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+                   f'{height:.1f}%', ha='center', va='bottom', fontsize=8, fontweight='bold')
+    
+    fig.tight_layout()
+    return fig_to_bytes(fig)
+
+def get_student_performance_insights(student_data, subjects, class_avg_data):
+    """Generate personalized insights for a student"""
+    insights = []
+    student_name = student_data.get('Student Name', 'Unknown Student')
+    overall_pct = student_data.get('Overall_pct', 0)
+    
+    # Overall performance insight
+    if overall_pct >= strong_threshold:
+        insights.append(f"🎉 **Excellent Performance**: {student_name} is performing strongly with an overall score of {overall_pct:.1f}%")
+    elif overall_pct >= average_threshold:
+        insights.append(f"📊 **Solid Performance**: {student_name} is performing at an average level with {overall_pct:.1f}%")
+    else:
+        insights.append(f"📚 **Needs Improvement**: {student_name} needs additional support with an overall score of {overall_pct:.1f}%")
+    
+    # Subject-specific insights
+    strong_subjects = []
+    weak_subjects = []
+    
+    for subject in subjects:
+        pct_col = subject + "_pct"
+        student_score = student_data.get(pct_col, 0)
+        class_avg = class_avg_data.get(subject, {}).get('average', 0)
+        
+        if not pd.isna(student_score):
+            if student_score >= 80:
+                strong_subjects.append(subject)
+            elif student_score <= 40:
+                weak_subjects.append(subject)
+            elif student_score < class_avg - 10:
+                weak_subjects.append(f"{subject} ({student_score:.1f}% vs class avg {class_avg:.1f}%)")
+    
+    if strong_subjects:
+        insights.append(f"🌟 **Strengths**: Excels in {', '.join(strong_subjects)}")
+    if weak_subjects:
+        insights.append(f"📉 **Areas for Improvement**: Needs support in {', '.join(weak_subjects)}")
+    
+    # Rank insight if available
+    if 'Current Position' in student_data and not pd.isna(student_data['Current Position']):
+        total_students = len(class_avg_data.get('all_students', []))
+        if total_students > 0:
+            rank = student_data['Current Position']
+            percentile = (rank / total_students) * 100
+            insights.append(f"🏆 **Class Rank**: Position {rank} out of {total_students} students ({percentile:.1f} percentile)")
+    
+    return insights
+
 # ---------- Comparison Functions ----------
 def compare_weeks(week1_data, week2_data, week1_name="Week 1", week2_name="Week 2"):
     """Compare two weeks of data and return comparison metrics"""
@@ -527,6 +657,384 @@ def create_student_comparison_chart(student_data, week1_name="Week 1", week2_nam
     fig.tight_layout()
     return fig_to_bytes(fig)
 
+# ---------- PDF Generation for Single File ----------
+def generate_pdf_buffer(df_processed, subjects, logo_bytes=None):
+    """Generate PDF report buffer for single file analysis"""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Header with logo
+    header_data = []
+    if logo_bytes:
+        try:
+            img = utils.ImageReader(logo_bytes)
+            iw, ih = img.getSize()
+            aspect = ih / float(iw)
+            rl_img = RLImage(logo_bytes, width=80, height=(80 * aspect))
+            header_data.append([rl_img, Paragraph(f"<b>{academy_name}</b><br/><i>Student Performance Report</i><br/>{report_date}", styles["Normal"])])
+            t = Table(header_data, colWidths=[90, 420])
+            t.setStyle(TableStyle([("VALIGN", (0,0), (-1,-1), "MIDDLE")]))
+            story.append(t)
+        except Exception as e:
+            story.append(Paragraph(f"<b>{academy_name}</b>", styles["Title"]))
+            story.append(Paragraph("Student Performance Report", styles["Heading2"]))
+    else:
+        story.append(Paragraph(f"<b>{academy_name}</b>", styles["Title"]))
+        story.append(Paragraph("Student Performance Report", styles["Heading2"]))
+    
+    story.append(Paragraph(f"Report generated: {report_date}", styles["Normal"]))
+    story.append(Spacer(1, 12))
+
+    # Class Information
+    if "Class Name" in df_processed.columns:
+        class_name = df_processed["Class Name"].iloc[0] if len(df_processed) > 0 else "Unknown"
+        story.append(Paragraph(f"<b>Class:</b> {class_name}", styles["Normal"]))
+    
+    if "Section Name" in df_processed.columns:
+        section_name = df_processed["Section Name"].iloc[0] if len(df_processed) > 0 else "Unknown"
+        story.append(Paragraph(f"<b>Section:</b> {section_name}", styles["Normal"]))
+    
+    story.append(Spacer(1, 12))
+
+    # Key Statistics
+    story.append(Paragraph("<b>Key Statistics</b>", styles["Heading2"]))
+    
+    total_students = len(df_processed)
+    class_avg = df_processed["Overall_pct"].mean()
+    highest_pct = df_processed["Overall_pct"].max()
+    lowest_pct = df_processed["Overall_pct"].min()
+    class_median = df_processed["Overall_pct"].median()
+    
+    # Performance categories
+    strong_students = df_processed[df_processed["Overall_pct"] >= strong_threshold]
+    avg_students = df_processed[(df_processed["Overall_pct"] >= average_threshold) & (df_processed["Overall_pct"] < strong_threshold)]
+    weak_students = df_processed[df_processed["Overall_pct"] < average_threshold]
+    
+    strong_count = len(strong_students)
+    avg_count = len(avg_students)
+    weak_count = len(weak_students)
+    
+    stats_data = [
+        ["Metric", "Value"],
+        ["Total Students", str(total_students)],
+        ["Class Average", f"{class_avg:.2f}%"],
+        ["Class Median", f"{class_median:.2f}%"],
+        ["Highest Score", f"{highest_pct:.2f}%"],
+        ["Lowest Score", f"{lowest_pct:.2f}%"],
+        [f"Strong Students (≥{strong_threshold}%)", f"{strong_count} ({(strong_count/total_students)*100:.1f}%)"],
+        [f"Average Students ({average_threshold}-{strong_threshold}%)", f"{avg_count} ({(avg_count/total_students)*100:.1f}%)"],
+        [f"Weak Students (<{average_threshold}%)", f"{weak_count} ({(weak_count/total_students)*100:.1f}%)"]
+    ]
+    
+    stats_table = Table(stats_data, colWidths=[200, 100])
+    stats_table.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.5, colors.black),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold")
+    ]))
+    story.append(stats_table)
+    story.append(Spacer(1, 12))
+
+    # Subject-wise Performance
+    story.append(Paragraph("<b>Subject-wise Performance</b>", styles["Heading2"]))
+    
+    subject_data = [["Subject", "Average", "Median", "Highest", "Lowest", "Std Dev"]]
+    for subject in subjects:
+        pct_col = subject + "_pct"
+        if pct_col in df_processed.columns:
+            subject_pct = df_processed[pct_col].dropna()
+            if len(subject_pct) > 0:
+                subject_data.append([
+                    subject,
+                    f"{subject_pct.mean():.2f}%",
+                    f"{subject_pct.median():.2f}%",
+                    f"{subject_pct.max():.2f}%",
+                    f"{subject_pct.min():.2f}%",
+                    f"{subject_pct.std():.2f}%"
+                ])
+    
+    subject_table = Table(subject_data, colWidths=[120, 70, 70, 70, 70, 70])
+    subject_table.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.3, colors.black),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 8),
+    ]))
+    story.append(subject_table)
+    story.append(PageBreak())
+
+    # Top Students
+    story.append(Paragraph("<b>Top Performing Students</b>", styles["Heading2"]))
+    
+    top_students = df_processed.nlargest(top_count, "Overall_pct")
+    top_data = [["Rank", "Student Name", "Overall %"] + [f"{s} %" for s in subjects]]
+    
+    for i, (idx, student) in enumerate(top_students.iterrows(), 1):
+        row = [str(i), student.get("Student Name", "Unknown")]
+        row.append(f"{student['Overall_pct']:.2f}%")
+        
+        for subject in subjects:
+            pct_col = subject + "_pct"
+            score = student.get(pct_col, np.nan)
+            row.append(f"{score:.2f}%" if not pd.isna(score) else "N/A")
+        
+        top_data.append(row)
+    
+    # Adjust column widths based on number of subjects
+    col_widths = [40, 120, 60] + [50] * len(subjects)
+    top_table = Table(top_data, colWidths=col_widths)
+    top_table.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.3, colors.black),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 7),
+    ]))
+    story.append(top_table)
+    story.append(Spacer(1, 12))
+
+    # Average Performing Students
+    story.append(Paragraph("<b>Average Performing Students</b>", styles["Heading2"]))
+    story.append(Paragraph(f"Students scoring between {average_threshold}% and {strong_threshold}%", styles["Normal"]))
+    
+    if len(avg_students) > 0:
+        # Sort average students by overall percentage (descending)
+        avg_students_sorted = avg_students.sort_values("Overall_pct", ascending=False)
+        
+        avg_data = [["Rank", "Student Name", "Overall %"] + [f"{s} %" for s in subjects]]
+        
+        for i, (idx, student) in enumerate(avg_students_sorted.iterrows(), 1):
+            row = [str(i), student.get("Student Name", "Unknown")]
+            row.append(f"{student['Overall_pct']:.2f}%")
+            
+            for subject in subjects:
+                pct_col = subject + "_pct"
+                score = student.get(pct_col, np.nan)
+                row.append(f"{score:.2f}%" if not pd.isna(score) else "N/A")
+            
+            avg_data.append(row)
+        
+        avg_table = Table(avg_data, colWidths=col_widths)
+        avg_table.setStyle(TableStyle([
+            ("GRID", (0,0), (-1,-1), 0.3, colors.black),
+            ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 7),
+            ("BACKGROUND", (0,1), (-1,-1), colors.lightyellow),  # Light yellow for average students
+        ]))
+        story.append(avg_table)
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(f"Total Average Students: {len(avg_students_sorted)} ({(len(avg_students_sorted)/total_students)*100:.1f}% of class)", styles["Normal"]))
+    else:
+        story.append(Paragraph("No students found in the average performance category.", styles["Normal"]))
+    
+    story.append(Spacer(1, 12))
+
+    # Bottom Students (excluding zeros)
+    story.append(Paragraph("<b>Students Needing Attention</b>", styles["Heading2"]))
+    
+    non_zero = df_processed[df_processed["Overall_pct"] > 0]
+    if len(non_zero) >= bottom_count:
+        bottom_students = non_zero.nsmallest(bottom_count, "Overall_pct")
+    else:
+        bottom_students = non_zero.nsmallest(len(non_zero), "Overall_pct")
+    
+    bottom_data = [["Rank", "Student Name", "Overall %"] + [f"{s} %" for s in subjects]]
+    
+    for i, (idx, student) in enumerate(bottom_students.iterrows(), 1):
+        row = [str(i), student.get("Student Name", "Unknown")]
+        row.append(f"{student['Overall_pct']:.2f}%")
+        
+        for subject in subjects:
+            pct_col = subject + "_pct"
+            score = student.get(pct_col, np.nan)
+            row.append(f"{score:.2f}%" if not pd.isna(score) else "N/A")
+        
+        bottom_data.append(row)
+    
+    bottom_table = Table(bottom_data, colWidths=col_widths)
+    bottom_table.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.3, colors.black),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 7),
+        ("TEXTCOLOR", (0,1), (-1,-1), colors.red),  # Red color for bottom students
+    ]))
+    story.append(bottom_table)
+    story.append(PageBreak())
+
+    # NEW: Individual Student Analysis Section
+    story.append(Paragraph("<b>Individual Student Detailed Analysis</b>", styles["Heading2"]))
+    story.append(Paragraph("Comprehensive performance breakdown for each student", styles["Normal"]))
+    story.append(Spacer(1, 12))
+
+    # Calculate subject statistics for comparison
+    subject_stats = {}
+    for subject in subjects:
+        pct_col = subject + "_pct"
+        if pct_col in df_processed.columns:
+            subject_data = df_processed[pct_col].dropna()
+            if len(subject_data) > 0:
+                subject_stats[subject] = {
+                    'average': subject_data.mean(),
+                    'median': subject_data.median(),
+                    'highest': subject_data.max(),
+                    'lowest': subject_data.min(),
+                    'std_dev': subject_data.std()
+                }
+
+    # Sort students by overall percentage for organized presentation
+    sorted_students = df_processed.sort_values("Overall_pct", ascending=False)
+    
+    students_per_page = 2  # Adjust based on content density
+    student_count = 0
+    
+    for idx, student in sorted_students.iterrows():
+        if student_count > 0 and student_count % students_per_page == 0:
+            story.append(PageBreak())
+        
+        student_name = student.get("Student Name", "Unknown Student")
+        overall_pct = student.get("Overall_pct", 0)
+        
+        # Student Header
+        story.append(Paragraph(f"<b>{student_name}</b>", styles["Heading3"]))
+        
+        # Student Overview Table
+        overview_data = [
+            ["Metric", "Value", "Performance Category"],
+            ["Overall Percentage", f"{overall_pct:.2f}%", 
+             "Strong" if overall_pct >= strong_threshold else 
+             "Average" if overall_pct >= average_threshold else "Weak"],
+            ["Class Rank", f"{idx + 1} / {len(sorted_students)}", 
+             f"Top {(idx + 1)/len(sorted_students)*100:.1f}%"]
+        ]
+        
+        if 'Current Position' in student and not pd.isna(student['Current Position']):
+            overview_data[2][1] = f"{student['Current Position']} / {len(sorted_students)}"
+        
+        overview_table = Table(overview_data, colWidths=[150, 100, 150])
+        overview_table.setStyle(TableStyle([
+            ("GRID", (0,0), (-1,-1), 0.3, colors.black),
+            ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("BACKGROUND", (2,1), (2,1), 
+             colors.lightgreen if overall_pct >= strong_threshold else 
+             colors.lightyellow if overall_pct >= average_threshold else colors.pink),
+        ]))
+        story.append(overview_table)
+        story.append(Spacer(1, 8))
+
+        # Subject Performance Table
+        story.append(Paragraph("<b>Subject-wise Performance</b>", styles["Heading4"]))
+        
+        subject_performance_data = [["Subject", "Student Score", "Class Average", "Difference", "Status"]]
+        
+        strong_subjects = []
+        weak_subjects = []
+        
+        for subject in subjects:
+            pct_col = subject + "_pct"
+            student_score = student.get(pct_col, np.nan)
+            class_avg = subject_stats.get(subject, {}).get('average', np.nan)
+            
+            if not pd.isna(student_score) and not pd.isna(class_avg):
+                difference = student_score - class_avg
+                status = "Above Average" if difference > 5 else "Below Average" if difference < -5 else "At Average"
+                
+                # Color coding for status
+                if difference > 10:
+                    strong_subjects.append(subject)
+                elif difference < -10:
+                    weak_subjects.append(subject)
+                
+                subject_performance_data.append([
+                    subject,
+                    f"{student_score:.2f}%",
+                    f"{class_avg:.2f}%",
+                    f"{difference:+.2f}%",
+                    status
+                ])
+        
+        subject_perf_table = Table(subject_performance_data, colWidths=[100, 80, 80, 80, 100])
+        subject_perf_table.setStyle(TableStyle([
+            ("GRID", (0,0), (-1,-1), 0.3, colors.black),
+            ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 7),
+        ]))
+        
+        # Apply color to status column
+        for i in range(1, len(subject_performance_data)):
+            status = subject_performance_data[i][4]
+            if status == "Above Average":
+                subject_perf_table.setStyle(TableStyle([
+                    ("TEXTCOLOR", (4,i), (4,i), colors.darkgreen),
+                    ("FONTNAME", (4,i), (4,i), "Helvetica-Bold")
+                ]))
+            elif status == "Below Average":
+                subject_perf_table.setStyle(TableStyle([
+                    ("TEXTCOLOR", (4,i), (4,i), colors.darkred),
+                    ("FONTNAME", (4,i), (4,i), "Helvetica-Bold")
+                ]))
+        
+        story.append(subject_perf_table)
+        story.append(Spacer(1, 8))
+
+        # Performance Insights - FIXED VERSION (no emojis, proper HTML)
+        story.append(Paragraph("<b>Performance Insights</b>", styles["Heading4"]))
+        
+        insights = []
+        
+        # Overall performance insight
+        if overall_pct >= strong_threshold:
+            insights.append(f"<b>Excellent Performance</b>: {student_name} is performing strongly with an overall score of {overall_pct:.1f}%")
+        elif overall_pct >= average_threshold:
+            insights.append(f"<b>Solid Performance</b>: {student_name} is performing at an average level with {overall_pct:.1f}%")
+        else:
+            insights.append(f"<b>Needs Improvement</b>: {student_name} needs additional support with an overall score of {overall_pct:.1f}%")
+        
+        # Subject-specific insights
+        if strong_subjects:
+            insights.append(f"<b>Strengths</b>: Excels in {', '.join(strong_subjects)}")
+        
+        if weak_subjects:
+            insights.append(f"<b>Areas for Improvement</b>: Needs support in {', '.join(weak_subjects)}")
+        
+        # Add recommendations based on performance
+        if overall_pct >= strong_threshold:
+            insights.append("<b>Recommendation</b>: Continue current study habits and consider advanced topics")
+        elif overall_pct >= average_threshold:
+            insights.append("<b>Recommendation</b>: Focus on weak subjects to reach strong performance level")
+        else:
+            insights.append("<b>Recommendation</b>: Requires intensive support and regular progress monitoring")
+        
+        # Add insights to story
+        for insight in insights:
+            story.append(Paragraph(insight, styles["Normal"]))
+            story.append(Spacer(1, 4))
+        
+        story.append(Spacer(1, 12))
+        student_count += 1
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+def generate_docx_buffer(df_processed, subjects, logo_bytes=None):
+    """Generate Word document report buffer for single file analysis"""
+    # This is a placeholder - implement Word document generation here
+    document = Document()
+    
+    # Add basic content
+    document.add_heading(f'{academy_name} - Student Performance Report', 0)
+    document.add_paragraph(f'Report generated: {report_date}')
+    
+    # Save to buffer
+    buffer = BytesIO()
+    document.save(buffer)
+    buffer.seek(0)
+    return buffer
+
 # ---------- PDF Generation for Comparison ----------
 def generate_comparison_pdf_buffer(week1_data, week2_data, comparison_data, week1_name, week2_name, logo_bytes=None):
     """Generate PDF report buffer for comparison"""
@@ -763,7 +1271,7 @@ def generate_comparison_pdf_buffer(week1_data, week2_data, comparison_data, week
 
 # ---------- Main UI ----------
 if not st.session_state.comparison_mode:
-    # Single file analysis mode (existing code)
+    # Single file analysis mode
     st.header("📊 Single File Analysis")
     
     uploaded = st.file_uploader("Upload your Excel file (.xlsx)", type=["xlsx"], key="single_file")
@@ -771,10 +1279,299 @@ if not st.session_state.comparison_mode:
         st.info("Upload an Excel file with student records. Example columns: Student Name, Class Name, Chemistry, Biology, Math, English, Urdu, etc.")
         st.stop()
 
-    # ... [Rest of single file analysis code] ...
+    # Load dataframe
+    try:
+        with st.spinner("Loading Excel file..."):
+            df = pd.read_excel(uploaded)
+        st.success("✅ File uploaded and read successfully!")
+    except Exception as e:
+        st.error(f"❌ Could not read Excel file: {e}")
+        st.stop()
+
+    if df.empty:
+        st.error("❌ The uploaded Excel file is empty.")
+        st.stop()
+
+    df.columns = df.columns.str.strip()
+    st.write("📋 Detected columns:", df.columns.tolist())
+
+    # Detect subjects
+    ignore_cols = IGNORE_COLS_DEFAULT.copy()
+    subjects = [c for c in df.columns if c not in ignore_cols and c.lower() not in [ic.lower() for ic in ignore_cols]]
+
+    if len(subjects) == 0:
+        st.error("❌ No subject columns detected. Please check your Excel file column names.")
+        st.write("Currently ignored columns:", ignore_cols)
+        st.stop()
+
+    st.write("🎯 Detected subjects:", subjects)
+
+    # Student filtering
+    st.sidebar.subheader("Student Filtering")
+    if "Class Name" in df.columns:
+        available_classes = df["Class Name"].unique().tolist()
+        selected_class = st.sidebar.selectbox("Filter by Class", ["All Classes"] + available_classes)
+        if selected_class != "All Classes":
+            df = df[df["Class Name"] == selected_class]
+
+    if "Section Name" in df.columns:
+        available_sections = df["Section Name"].unique().tolist()
+        selected_section = st.sidebar.selectbox("Filter by Section", ["All Sections"] + available_sections)
+        if selected_section != "All Sections":
+            df = df[df["Section Name"] == selected_section]
+
+    # Process data
+    st.info("🔄 Processing subject scores...")
+    progress_bar = st.progress(0)
+    
+    try:
+        data = process_dataframe(df, subjects)
+        processed_df = data['df']
+        progress_bar.progress(100)
+        st.session_state.df_week1 = data  # Store for potential comparison
+    except Exception as e:
+        st.error(f"❌ Error processing data: {e}")
+        st.stop()
+
+    # Display results
+    st.markdown("---")
+    st.subheader("📈 Performance Overview")
+    
+    # Key metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Students", data['total_students'])
+    with col2:
+        st.metric("Class Average", f"{data['class_avg']:.2f}%")
+    with col3:
+        st.metric("Highest Score", f"{data['highest_pct']:.2f}%")
+    with col4:
+        st.metric("Lowest Score", f"{data['lowest_pct']:.2f}%")
+
+    # Performance distribution
+    st.subheader("🎯 Performance Distribution")
+    dist_col1, dist_col2, dist_col3 = st.columns(3)
+    with dist_col1:
+        st.metric("Strong Students", len(data['strong_students']), 
+                 f"{(len(data['strong_students'])/data['total_students'])*100:.1f}%")
+    with dist_col2:
+        st.metric("Average Students", len(data['avg_students']),
+                 f"{(len(data['avg_students'])/data['total_students'])*100:.1f}%")
+    with dist_col3:
+        st.metric("Weak Students", len(data['weak_students']),
+                 f"{(len(data['weak_students'])/data['total_students'])*100:.1f}%")
+
+    # Charts
+    st.subheader("📊 Analytics Charts")
+    chart_col1, chart_col2 = st.columns(2)
+    with chart_col1:
+        st.write("**Subject-wise Averages**")
+        subj_img = create_subject_avg_bar_chart(subjects, processed_df)
+        st.image(subj_img)
+    with chart_col2:
+        st.write("**Overall Distribution**")
+        dist_img = create_overall_distribution(processed_df["Overall_pct"])
+        st.image(dist_img)
+
+    chart_col3, chart_col4 = st.columns(2)
+    with chart_col3:
+        st.write("**Performance Categories**")
+        pie_img = create_performance_pie_chart(len(data['strong_students']), len(data['avg_students']), len(data['weak_students']))
+        st.image(pie_img)
+
+    # Top and Bottom Students
+    col_left, col_right = st.columns(2)
+    with col_left:
+        st.write(f"🏅 **Top {top_count} Students**")
+        top_display = data['top_students'][['Student Name', 'Overall_pct']].copy()
+        top_display["Overall_pct"] = top_display["Overall_pct"].round(2)
+        top_display = top_display.rename(columns={"Overall_pct": "Overall %"})
+        st.dataframe(top_display, use_container_width=True)
+
+    with col_right:
+        st.write(f"📉 **Bottom {bottom_count} Students**")
+        bottom_display = data['bottom_students'][['Student Name', 'Overall_pct']].copy()
+        bottom_display["Overall_pct"] = bottom_display["Overall_pct"].round(2)
+        bottom_display = bottom_display.rename(columns={"Overall_pct": "Overall %"})
+        st.dataframe(bottom_display, use_container_width=True)
+
+    # NEW: Average Students Table
+    st.subheader("📊 Average Performing Students")
+    if len(data['avg_students']) > 0:
+        avg_display = data['avg_students'][['Student Name', 'Overall_pct']].copy()
+        avg_display["Overall_pct"] = avg_display["Overall_pct"].round(2)
+        avg_display = avg_display.rename(columns={"Overall_pct": "Overall %"})
+        avg_display = avg_display.sort_values("Overall %", ascending=False)
+        st.dataframe(avg_display, use_container_width=True)
+        st.info(f"Showing {len(avg_display)} students performing at average level ({average_threshold}-{strong_threshold}%)")
+    else:
+        st.info("No students found in the average performance category.")
+
+    # NEW: Individual Student Analysis
+    st.markdown("---")
+    st.subheader("👤 Individual Student Analysis")
+    
+    if 'Student Name' in processed_df.columns:
+        student_names = processed_df['Student Name'].dropna().unique().tolist()
+        selected_student = st.selectbox("Select Student for Detailed Analysis", student_names)
+        
+        if selected_student:
+            student_data = processed_df[processed_df['Student Name'] == selected_student].iloc[0]
+            
+            # Student overview
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                overall_pct = student_data.get('Overall_pct', 0)
+                st.metric("Overall Percentage", f"{overall_pct:.2f}%")
+            
+            with col2:
+                # Determine performance category
+                if overall_pct >= strong_threshold:
+                    category = "Strong"
+                    color = "green"
+                elif overall_pct >= average_threshold:
+                    category = "Average"
+                    color = "orange"
+                else:
+                    category = "Weak"
+                    color = "red"
+                st.metric("Performance Category", category)
+            
+            with col3:
+                if 'Current Position' in student_data and not pd.isna(student_data['Current Position']):
+                    rank = student_data['Current Position']
+                    total = len(processed_df)
+                    st.metric("Class Rank", f"{rank} / {total}")
+                else:
+                    st.metric("Class Rank", "Not Available")
+            
+            # Student insights
+            st.subheader(f"💡 Performance Insights for {selected_student}")
+            insights = get_student_performance_insights(student_data, subjects, data['subject_stats'])
+            for insight in insights:
+                st.write(insight)
+            
+            # Student charts
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Subject Performance Radar**")
+                radar_img = create_student_performance_chart(student_data, subjects)
+                st.image(radar_img)
+            
+            with col2:
+                st.write("**Subject vs Class Average**")
+                bar_img = create_student_subject_bar_chart(student_data, subjects, data['subject_stats'])
+                st.image(bar_img)
+            
+            # Detailed subject scores
+            st.subheader("📋 Detailed Subject Scores")
+            subject_scores_data = []
+            for subject in subjects:
+                pct_col = subject + "_pct"
+                student_score = student_data.get(pct_col, np.nan)
+                class_avg = data['subject_stats'].get(subject, {}).get('average', np.nan)
+                
+                if not pd.isna(student_score) and not pd.isna(class_avg):
+                    difference = student_score - class_avg
+                    status = "Above Average" if difference > 0 else "Below Average" if difference < 0 else "At Average"
+                    subject_scores_data.append({
+                        'Subject': subject,
+                        'Student Score': f"{student_score:.2f}%",
+                        'Class Average': f"{class_avg:.2f}%",
+                        'Difference': f"{difference:+.2f}%",
+                        'Status': status
+                    })
+            
+            if subject_scores_data:
+                subject_scores_df = pd.DataFrame(subject_scores_data)
+                st.dataframe(subject_scores_df, use_container_width=True)
+    else:
+        st.warning("Student Name column not found for individual analysis.")
+
+    # Data Preview
+    with st.expander("🔍 View Processed Data Preview"):
+        preview_cols = ["Student Name"] + subjects + [s + "_pct" for s in subjects] + ["Overall_pct"]
+        available_cols = [c for c in preview_cols if c in processed_df.columns]
+        st.dataframe(processed_df[available_cols].head(15), use_container_width=True)
+
+    with st.expander("📊 View Detailed Statistics"):
+        st.write("**Subject-wise Statistics:**")
+        stats_data = []
+        for subject in subjects:
+            pct_col = subject + "_pct"
+            if pct_col in processed_df.columns:
+                subject_data = processed_df[pct_col].dropna()
+                if len(subject_data) > 0:
+                    stats_data.append({
+                        "Subject": subject,
+                        "Average": subject_data.mean(),
+                        "Median": subject_data.median(),
+                        "Highest": subject_data.max(),
+                        "Lowest": subject_data.min(),
+                        "Std Dev": subject_data.std(),
+                        "Count": len(subject_data)
+                    })
+        stats_df = pd.DataFrame(stats_data)
+        if not stats_df.empty:
+            # Format numeric columns
+            numeric_cols = ['Average', 'Median', 'Highest', 'Lowest', 'Std Dev']
+            for col in numeric_cols:
+                if col in stats_df.columns:
+                    stats_df[col] = stats_df[col].round(2)
+            st.dataframe(stats_df, use_container_width=True)
+        else:
+            st.info("No subject statistics available.")
+
+    # PDF Download Button for Single File
+    st.markdown("---")
+    st.subheader("📄 Download Report")
+    
+    output_type = st.radio("Choose output format:", 
+                          ("PDF Report (Recommended)", "Editable Word Document (.docx)"),
+                          horizontal=True)
+
+    if st.button("📥 Generate & Download Report", type="primary", key="single_download"):
+        logo_bytes = None
+        if logo_file is not None:
+            logo_bytes = logo_file.getvalue() if hasattr(logo_file, 'getvalue') else logo_file
+
+        class_name = processed_df.get("Class Name", "Unknown Class").iloc[0] if "Class Name" in processed_df.columns else "Unknown_Class"
+        class_name_safe = re.sub(r'[^\w\-_]', '', str(class_name).replace(" ", "_"))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        try:
+            if output_type == "PDF Report (Recommended)":
+                pdf_buffer = generate_pdf_buffer(processed_df, subjects, logo_bytes)
+                filename = f"student_report_{class_name_safe}_{timestamp}.pdf"
+                
+                st.download_button(
+                    label="📥 Download PDF Report",
+                    data=pdf_buffer,
+                    file_name=filename,
+                    mime="application/pdf",
+                    type="primary"
+                )
+            else:  # DOCX
+                docx_buffer = generate_docx_buffer(processed_df, subjects, logo_bytes)
+                filename = f"student_report_{class_name_safe}_{timestamp}.docx"
+                
+                st.download_button(
+                    label="📥 Download Word Document",
+                    data=docx_buffer,
+                    file_name=filename,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary"
+                )
+            
+            st.success("✅ Report generated successfully! Click the download button above.")
+            
+        except Exception as e:
+            st.error(f"❌ Error generating report: {e}")
 
 else:
-    # Two-file comparison mode
+    # Two-file comparison mode (existing code remains the same)
+    # ... [rest of the comparison mode code remains unchanged]
+     # Two-file comparison mode
     st.header("📈 Two-Week Comparison Analysis")
     
     col1, col2 = st.columns(2)
